@@ -1,6 +1,10 @@
-use std::net::TcpListener;
-use std::process;
+use std::fs;
 use std::env;
+use std::process;
+use std::io::prelude::*;
+
+use std::net::TcpListener;
+use std::net::TcpStream;
 
 fn main() {
 
@@ -22,8 +26,51 @@ fn main() {
     println!("Listenting on port {}...", port);
 
     // Iterate through each connection attempt being recieved on the listener.
-    for _ in listener.incoming() {
-        println!("Connection established!");
+    for stream in listener.incoming() {
+        handle_connection(stream.unwrap());
     }
     
+}
+
+fn handle_connection(mut stream: TcpStream) {
+    // Accept a mutable TcpStream (needs to be mutable since it keeps track (internally) 
+    // of how much of the request we've read.)
+
+    // Create a buffer big enough for handling simple requests.
+    let mut buffer = [0; 1024];
+
+    // Read the bytes off the stream buffer and store them in the buffer
+    stream.read(&mut buffer).unwrap();
+
+    // Provide a simple output of the buffer contents.
+    // println!("Request: {}", String::from_utf8_lossy(&buffer[..]));
+
+    if buffer.starts_with(b"GET / HTTP/1.1\r\n") {
+        // Send a minimal response with no headers and no body.
+        let response_contents = fs::read_to_string("hello.html").unwrap();
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{}",
+            response_contents.len(),
+            response_contents
+        );
+
+        stream.write(response.as_bytes()).unwrap();
+        stream.flush().unwrap();
+    } else {
+        // Some other request
+        let status_line = "HTTP/1.1 404 NOT FOUND";
+        let contents = fs::read_to_string("404.html").unwrap();
+
+        let response = format!(
+            "{}\r\nContent-Length: {}\r\n\r\n{}",
+            status_line,
+            contents.len(),
+            contents
+        );
+
+        stream.write(response.as_bytes()).unwrap();
+        stream.flush().unwrap();
+    }
+
+    println!("Sent response successfully.");
 }
