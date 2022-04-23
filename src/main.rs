@@ -1,3 +1,6 @@
+// Import modules
+mod thread_pool;
+
 use std::fs;
 use std::env;
 use std::thread;
@@ -6,6 +9,7 @@ use std::io::prelude::*;
 use std::time::Duration;
 use std::net::TcpStream;
 use std::net::TcpListener;
+use crate::thread_pool::thread_pool::{ThreadPool};
 
 fn main() {
 
@@ -26,9 +30,22 @@ fn main() {
     // Let the user we successfully bound to the port.
     println!("Listenting on port {}...", port);
 
+    // Setup the thread pool
+    let tp = match ThreadPool::new(5) {
+        Ok(tp) => tp,
+        Err(err) => {
+            // If we failed to initialize the threadpool.
+            eprintln!("Failed to initialize the threadpool: {}", err);
+            // Exit since failing to create the listener means we can't serve anything.
+            process::exit(2);
+        }
+    };
+
     // Iterate through each connection attempt being recieved on the listener.
     for stream in listener.incoming() {
-        handle_connection(stream.unwrap());
+        tp.execute(|| {
+            handle_connection(stream.unwrap());
+        });
     }
     
 }
