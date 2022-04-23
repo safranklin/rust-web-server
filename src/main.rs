@@ -1,10 +1,11 @@
 use std::fs;
 use std::env;
+use std::thread;
 use std::process;
 use std::io::prelude::*;
-
-use std::net::TcpListener;
+use std::time::Duration;
 use std::net::TcpStream;
+use std::net::TcpListener;
 
 fn main() {
 
@@ -33,6 +34,8 @@ fn main() {
 }
 
 fn handle_connection(mut stream: TcpStream) {
+
+    println!("Handling connection...");
     // Accept a mutable TcpStream (needs to be mutable since it keeps track (internally) 
     // of how much of the request we've read.)
 
@@ -47,6 +50,9 @@ fn handle_connection(mut stream: TcpStream) {
 
 
     let (status_line, filename) = if buffer.starts_with(b"GET / HTTP/1.1\r\n") {
+        ("HTTP/1.1 200 OK", "hello.html")
+    } else if buffer.starts_with(b"GET /sleep HTTP/1.1\r\n") {
+        thread::sleep(Duration::from_secs(5));
         ("HTTP/1.1 200 OK", "hello.html")
     } else {
         ("HTTP/1.1 404 NOT FOUND", "404.html")
