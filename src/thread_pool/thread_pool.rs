@@ -6,7 +6,7 @@ use std::sync::Mutex;
 
 pub struct ThreadPool {
     workers: Vec<Worker>,
-    sender: mpsc::Sender<Job>
+    sender: mpsc::Sender<Message>
 }
 impl ThreadPool {
     /// Create a new ThreadPool.
@@ -41,37 +41,70 @@ impl ThreadPool {
     pub fn execute<F>(&self, f: F) where F: FnOnce() + Send + 'static, {
         let job = Box::new(f);
 
-        self.sender.send(job).unwrap();
+        self.sender.send(Message::NewJob(job)).unwrap();
     }
     
 }
 
+impl Drop for ThreadPool {
+    fn drop(&mut self) {
+        println!("Asking workers to terminate.");
+        for _ in &self.workers {
+            self.sender.send(Message::Terminate).unwrap();
+        }
+
+        println!("Shutting down all workers.");
+        for worker in &mut self.workers {
+            println!("Shutting down worker {}", worker.id);
+            
+            if let Some(thread) = worker.thread.take() {
+                thread.join().unwrap();
+            }
+
+        }
+    }
+}
+
 // Define Job to be a box of memory with the same trait bounds as the execute function.
 type Job = Box<dyn FnOnce() + Send + 'static>;
+enum Message {
+    NewJob(Job),
+    Terminate,
+}
 
 struct Worker {
     id: usize,
-    thread: thread::JoinHandle<()>,
+    thread: Option<thread::JoinHandle<()>>,
 }
 impl Worker {
-    fn new(id: usize, reciever: Arc<Mutex<mpsc::Receiver<Job>>>) -> Worker {
+    fn new(id: usize, reciever: Arc<Mutex<mpsc::Receiver<Message>>>) -> Worker {
         let thread = thread::spawn(move || loop {
-            // Retrieve the job by locking the reciever (preventing other threads from accessing)
+            // Retrieve the message by locking the reciever (preventing other threads from accessing)
             // unwrap it to panic on any errors (an example may be a posioned mutex which happens
             // if a thread panics before releasing the lock).
-            let job = reciever.lock() // We are using a Mutex here to ensure that only a single thread is waiting to recieve a job.
-                                      // Any other threads that hit the lock will wait till the lock is released before trying to call
-                                      // recv().
-                              .expect("Thread is poisioned. Likely a panic occurred and the lock was not released")
-                              .recv() // If we get the lock call recv to recieve the job from the channel.
-                                      // recv will block the thread execution until a message is sent (job is available).
-                              .unwrap();
-            println!("Worker {} got a job; executing...", id);
-            job();
+            let message = reciever.lock() // We are using a Mutex here to ensure that only a single thread is waiting to recieve a job.
+                                          // Any other threads that hit the lock will wait till the lock is released before trying to call
+                                          // recv().
+                                  .expect("Thread is poisioned. Likely a panic occurred and the lock was not released")
+                                  .recv() // If we get the lock call recv to recieve the job from the channel.
+                                          // recv will block the thread execution until a message is sent (job is available).
+                                  .unwrap();
+            match message {
+                Message::NewJob(job) => {
+                    println!("Worker {} got a job; executing...", id);
+                    job();
+                }
+                Message::Terminate => {
+                    println!("Worker {} was asked to terminate.", id);
+                    break;
+                }
+            }
         });
 
-
-        Worker {id, thread}
+        Worker {
+            id,
+            thread: Some(thread)
+        }
     }
 }
 
