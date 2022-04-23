@@ -45,32 +45,24 @@ fn handle_connection(mut stream: TcpStream) {
     // Provide a simple output of the buffer contents.
     // println!("Request: {}", String::from_utf8_lossy(&buffer[..]));
 
-    if buffer.starts_with(b"GET / HTTP/1.1\r\n") {
-        // Send a minimal response with no headers and no body.
-        let response_contents = fs::read_to_string("hello.html").unwrap();
-        let response = format!(
-            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{}",
-            response_contents.len(),
-            response_contents
-        );
 
-        stream.write(response.as_bytes()).unwrap();
-        stream.flush().unwrap();
+    let (status_line, filename) = if buffer.starts_with(b"GET / HTTP/1.1\r\n") {
+        ("HTTP/1.1 200 OK", "hello.html")
     } else {
-        // Some other request
-        let status_line = "HTTP/1.1 404 NOT FOUND";
-        let contents = fs::read_to_string("404.html").unwrap();
+        ("HTTP/1.1 404 NOT FOUND", "404.html")
+    };
 
-        let response = format!(
-            "{}\r\nContent-Length: {}\r\n\r\n{}",
-            status_line,
-            contents.len(),
-            contents
-        );
+    let contents = fs::read_to_string(filename).unwrap();
 
-        stream.write(response.as_bytes()).unwrap();
-        stream.flush().unwrap();
-    }
+    let response = format!(
+        "{}\r\nContent-Length: {}\r\n\r\n{}",
+        status_line,
+        contents.len(),
+        contents
+    );
+
+    stream.write(response.as_bytes()).unwrap();
+    stream.flush().unwrap();
 
     println!("Sent response successfully.");
 }
