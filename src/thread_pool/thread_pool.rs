@@ -100,7 +100,6 @@ impl Worker {
                 }
             }
         });
-
         Worker {
             id,
             thread: Some(thread)
@@ -110,7 +109,6 @@ impl Worker {
 
 
 // Errors:
-
 // Define our error types. These may be customized for our error handling cases.
 // Now we will be able to write our own errors, defer to an underlying error
 // implementation, or do something in between.
@@ -126,6 +124,7 @@ impl fmt::Display for PoolCreationError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::{Duration};
 
     #[test]
     fn test_acceptable_threadpool_creation() {
@@ -137,5 +136,60 @@ mod tests {
     #[test]
     fn test_threadpool_creation_zero_thread_count() {
         assert!(ThreadPool::new(0).is_err());
+    }
+
+
+    #[test]
+    fn test_threadpool_basic_sum() {
+        let tp_size: i32 = 42;
+        // Setup the thread pool
+        let tp = ThreadPool::new(tp_size as usize).expect("Failed to create threads");
+        let (tx, rx) = mpsc::channel();
+        for i in 1..tp_size {
+            let tx = tx.clone();
+            tp.execute(move || {
+                tx.send(i).expect("channel will be waiting");
+            });
+        }
+        drop(tx);
+        let result = rx.iter().fold(1, |accumulator, element| accumulator + element);
+        assert_eq!(result, (1 .. tp_size).fold(1, |a, b| a + b));
+    }
+
+    #[test]
+    fn test_threadpool_long_tasks() {
+        // For this test we will spawn threads with ids 1 to tp_size
+        // Then each thread will send numbers between 1 and 2*tp_size. All threads that are even
+        // will have to wait for 3 seconds after being spawned to send their id. This means when
+        // we collect results on the reciever that all the odd elements will appear before all
+        // the even results suggestting that the thread pools queuing mechanism is working.
+        let tp_size: u64 = 5;
+        // Setup the thread pool with tp_size number of threads.
+        let tp = ThreadPool::new(tp_size as usize).expect("Failed to create threads.");
+        // Create a channel to communicate between the main thread and threadpool worker threads.
+        let (tx, rx) = mpsc::channel();
+        for i in 1..tp_size*2 {
+            let tx = tx.clone();
+            tp.execute(move || {
+                if i % 2 == 0 {
+                    // All even threads will need to wait 3 seconds.
+                    thread::sleep(Duration::from_secs(3));
+                }
+                tx.send(i).expect("Channel transmitter should've sent a value.");
+            });
+        }
+        drop(tx);
+        let results: Vec<u64> = rx.iter().collect();
+        let midpoint = (results.len() as u64) / 2;
+        for (index, result) in results.iter().enumerate() {
+            if index as u64 <= midpoint {
+                // Make sure that all the elements in the first half
+                // of the vector are odd.
+                assert!(result % 2 != 0);
+            } else {
+                // Adnt hat all elements after the first half are even.
+                assert!(result % 2 == 0);
+            }
+        }
     }
 }
